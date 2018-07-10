@@ -73,22 +73,7 @@ def extract_labels(filename, one_hot=False):
 class DataSet(object):
 
   def __init__(self, images, labels, fake_data=False):
-    if fake_data:
-      self._num_examples = 10000
-    else:
-      assert images.shape[0] == labels.shape[0], (
-          "images.shape: %s labels.shape: %s" % (images.shape,
-                                                 labels.shape))
-      self._num_examples = images.shape[0]
-
-      # Convert shape from [num examples, rows, columns, depth]
-      # to [num examples, rows*columns] (assuming depth == 1)
-      assert images.shape[3] == 1
-      images = images.reshape(images.shape[0],
-                              images.shape[1] * images.shape[2])
-      # Convert from [0, 255] -> [0.0, 1.0].
-      images = images.astype(numpy.float32)
-      images = numpy.multiply(images, 1.0 / 255.0)
+    self._num_examples = images.shape[0]
     self._images = images
     self._labels = labels
     self._epochs_completed = 0
@@ -112,11 +97,6 @@ class DataSet(object):
 
   def next_batch(self, batch_size, fake_data=False):
     """Return the next `batch_size` examples from this data set."""
-    if fake_data:
-      fake_image = [1.0 for _ in xrange(784)]
-      fake_label = 0
-      return [fake_image for _ in xrange(batch_size)], [
-          fake_label for _ in xrange(batch_size)]
     start = self._index_in_epoch
     self._index_in_epoch += batch_size
     if self._index_in_epoch > self._num_examples:
@@ -147,17 +127,7 @@ class SemiDataSet(object):
         shuffled_indices = numpy.random.permutation(indices)
         images = images[shuffled_indices]
         labels = labels[shuffled_indices]
-        y = numpy.array([numpy.arange(10)[l==1][0] for l in labels])
-        idx = indices[y==0][:5]
-        n_classes = y.max() + 1
-        n_from_each_class = n_labeled / n_classes
-        i_labeled = []
-        for c in range(n_classes):
-            i = indices[y==c][:n_from_each_class]
-            i_labeled += list(i)
-        l_images = images[i_labeled]
-        l_labels = labels[i_labeled]
-        self.labeled_ds = DataSet(l_images, l_labels)
+        self.labeled_ds = DataSet(images, labels)
 
     def next_batch(self, batch_size):
         unlabeled_images, _ = self.unlabeled_ds.next_batch(batch_size)
@@ -168,42 +138,31 @@ class SemiDataSet(object):
         images = numpy.vstack([labeled_images, unlabeled_images])
         return images, labels
 
-def read_data_sets(train_dir, n_labeled = 100, fake_data=False, one_hot=False):
+def read_data_sets(app, train_dir, n_labeled = 100, fake_data=False, one_hot=False):
   class DataSets(object):
     pass
   data_sets = DataSets()
 
-  if fake_data:
-    data_sets.train = DataSet([], [], fake_data=True)
-    data_sets.validation = DataSet([], [], fake_data=True)
-    data_sets.test = DataSet([], [], fake_data=True)
-    return data_sets
-
-  TRAIN_IMAGES = 'train-images-idx3-ubyte.gz'
-  TRAIN_LABELS = 'train-labels-idx1-ubyte.gz'
-  TEST_IMAGES = 't10k-images-idx3-ubyte.gz'
-  TEST_LABELS = 't10k-labels-idx1-ubyte.gz'
-  VALIDATION_SIZE = 0
-
-  local_file = maybe_download(TRAIN_IMAGES, train_dir)
-  train_images = extract_images(local_file)
-
-  local_file = maybe_download(TRAIN_LABELS, train_dir)
-  train_labels = extract_labels(local_file, one_hot=one_hot)
-
-  local_file = maybe_download(TEST_IMAGES, train_dir)
-  test_images = extract_images(local_file)
-
-  local_file = maybe_download(TEST_LABELS, train_dir)
-  test_labels = extract_labels(local_file, one_hot=one_hot)
-
-  validation_images = train_images[:VALIDATION_SIZE]
-  validation_labels = train_labels[:VALIDATION_SIZE]
-  train_images = train_images[VALIDATION_SIZE:]
-  train_labels = train_labels[VALIDATION_SIZE:]
-
+  import numpy as np
+  from sklearn.metrics import accuracy_score, precision_score, recall_score, mean_squared_error
+  validation_images = np.nan_to_num(np.load(app+'/val_x.npy'))
+  validation_labels = np.nan_to_num(np.load(app+'/val_y.npy'))
+  train_images = np.nan_to_num(np.load(app+'/train_x.npy'))
+  train_labels = np.nan_to_num(np.load(app+'/train_y.npy'))
+  print(mean_squared_error(validation_labels, np.zeros(validation_labels.shape)))
+  '''
+  threshold = 10
+  validation_labels[validation_labels <= threshold] = 0
+  validation_labels[validation_labels > threshold] = 1
+  train_labels[train_labels <= threshold] = 0
+  train_labels[train_labels > threshold] = 1
+  print(accuracy_score(validation_labels.flatten(), np.zeros(validation_labels.flatten().shape)))
+  print(precision_score(validation_labels.flatten(), np.ones(validation_labels.flatten().shape)))
+  print(recall_score(validation_labels.flatten(), np.ones(validation_labels.flatten().shape)))
+  exit()
+  '''
   data_sets.train = SemiDataSet(train_images, train_labels, n_labeled)
   data_sets.validation = DataSet(validation_images, validation_labels)
-  data_sets.test = DataSet(test_images, test_labels)
+  data_sets.test = DataSet(validation_images, validation_labels)
 
   return data_sets

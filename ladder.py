@@ -4,14 +4,17 @@ import math
 import os
 import csv
 from tqdm import tqdm
+import numpy as np
+from metrics import Metrics
+import sys
 
-layer_sizes = [784, 1000, 500, 250, 250, 250, 10]
+layer_sizes = [120, 120*8, 128, 120*8, 120]
 
 L = len(layer_sizes) - 1  # number of layers
 
-num_examples = 60000
-num_epochs = 150
-num_labeled = 100
+num_examples = 15000
+num_epochs = 1000
+num_labeled = 15000
 
 starter_learning_rate = 0.02
 
@@ -21,7 +24,7 @@ batch_size = 100
 num_iter = (num_examples/batch_size) * num_epochs  # number of loop iterations
 
 inputs = tf.placeholder(tf.float32, shape=(None, layer_sizes[0]))
-outputs = tf.placeholder(tf.float32)
+outputs = tf.placeholder(tf.float32, shape=(None, layer_sizes[0]))
 
 
 def bi(inits, size, name):
@@ -124,7 +127,7 @@ def encoder(inputs, noise_std):
 
         if l == L:
             # use softmax activation in output layer
-            h = tf.nn.softmax(weights['gamma'][l-1] * (z + weights["beta"][l-1]))
+            h = weights['gamma'][l-1] * (z + weights["beta"][l-1])
         else:
             # use ReLU activation in hidden layers
             h = tf.nn.relu(z + weights["beta"][l-1])
@@ -176,7 +179,7 @@ for l in range(L, -1, -1):
         u = tf.matmul(z_est[l+1], weights['V'][l])
     u = batch_normalization(u)
     z_est[l] = g_gauss(z_c, u, layer_sizes[l])
-    z_est_bn = (z_est[l] - m) / v
+    z_est_bn = (z_est[l] - m) / (v + 1-1e-10)
     # append the cost of this layer to d_cost
     d_cost.append((tf.reduce_mean(tf.reduce_sum(tf.square(z_est_bn - z), 1)) / layer_sizes[l]) * denoising_cost[l])
 
@@ -184,11 +187,12 @@ for l in range(L, -1, -1):
 u_cost = tf.add_n(d_cost)
 
 y_N = labeled(y_c)
-cost = -tf.reduce_mean(tf.reduce_sum(outputs*tf.log(y_N), 1))  # supervised cost
+#cost = -tf.reduce_mean(tf.reduce_sum(outputs*tf.log(y_N), 1))  # supervised cost
+cost = tf.losses.mean_squared_error(outputs, y_N)
 loss = cost + u_cost  # total cost
 
-pred_cost = -tf.reduce_mean(tf.reduce_sum(outputs*tf.log(y), 1))  # cost used for prediction
-
+#pred_cost = -tf.reduce_mean(tf.reduce_sum(outputs*tf.log(y), 1))  # cost used for prediction
+pred_cost = tf.losses.mean_squared_error(outputs, y)
 correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(outputs, 1))  # no of correct predictions
 accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float")) * tf.constant(100.0)
 
@@ -201,7 +205,8 @@ with tf.control_dependencies([train_step]):
     train_step = tf.group(bn_updates)
 
 print "===  Loading Data ==="
-mnist = input_data.read_data_sets("MNIST_data", n_labeled=num_labeled, one_hot=True)
+app = sys.argv[1] + '/'
+mnist = input_data.read_data_sets(app, "MNIST_data", n_labeled=num_labeled)
 
 saver = tf.train.Saver()
 
@@ -210,25 +215,36 @@ sess = tf.Session()
 
 i_iter = 0
 
-ckpt = tf.train.get_checkpoint_state('checkpoints/')  # get latest checkpoint (if any)
+test = [2, 4, 6, 15, 17, 22, 24, 26, 39]
+# Testing
+ckpt = tf.train.get_checkpoint_state(app)  # get latest checkpoint (if any)
 if ckpt and ckpt.model_checkpoint_path:
-    # if checkpoint exists, restore the parameters and set epoch_n and i_iter
     saver.restore(sess, ckpt.model_checkpoint_path)
-    epoch_n = int(ckpt.model_checkpoint_path.split('-')[1])
-    i_iter = (epoch_n+1) * (num_examples/batch_size)
-    print "Restored Epoch ", epoch_n
-else:
-    # no checkpoint exists. create checkpoints directory if it does not exist.
-    if not os.path.exists('checkpoints'):
-        os.makedirs('checkpoints')
-    init = tf.global_variables_initializer()
-    sess.run(init)
+    for mon in ['1','2','3']:
+        for house in test:
+            try:
+                hx = np.load(app + str(house) + '_' + mon + 'x.npy')
+                hy = np.load(app + str(house) + '_' + mon + 'y.npy')
+                hx = np.load(app + 'val_x.npy')
+                hy = np.load(app + 'val_y.npy')
+                pre = sess.run(y, feed_dict={inputs: hx, outputs:hy, training: False})
+                m = Metrics([10])
+                dd = m.compute_metrics(pre, hy)
+                print(mon, house)
+                print(dd['classification_2_state']['accuracy_score'], dd['regression']['mean_absolute_error'], dd['regression']['relative_error_in_total_energy'])
+            except:
+                pass
+exit()
+
+# Training
+init = tf.global_variables_initializer()
+sess.run(init)
 
 print "=== Training ==="
-print "Initial Accuracy: ", sess.run(accuracy, feed_dict={inputs: mnist.test.images, outputs: mnist.test.labels, training: False}), "%"
-
+print "Initial Loss: ", sess.run(pred_cost, feed_dict={inputs: mnist.test.images, outputs: mnist.test.labels, training: False})
 for i in tqdm(range(i_iter, num_iter)):
     images, labels = mnist.train.next_batch(batch_size)
+    #print(sess.run(u_cost, feed_dict={inputs: images, outputs: labels, training:False}))
     sess.run(train_step, feed_dict={inputs: images, outputs: labels, training: True})
     if (i > 1) and ((i+1) % (num_iter/num_epochs) == 0):
         epoch_n = i/(num_examples/batch_size)
@@ -238,14 +254,19 @@ for i in tqdm(range(i_iter, num_iter)):
             ratio = 1.0 * (num_epochs - (epoch_n+1))  # epoch_n + 1 because learning rate is set for next epoch
             ratio = max(0, ratio / (num_epochs - decay_after))
             sess.run(learning_rate.assign(starter_learning_rate * ratio))
-        saver.save(sess, 'checkpoints/model.ckpt', epoch_n)
-        # print "Epoch ", epoch_n, ", Accuracy: ", sess.run(accuracy, feed_dict={inputs: mnist.test.images, outputs:mnist.test.labels, training: False}), "%"
-        with open('train_log', 'ab') as train_log:
-            # write test accuracy to file "train_log"
-            train_log_w = csv.writer(train_log)
-            log_i = [epoch_n] + sess.run([accuracy], feed_dict={inputs: mnist.test.images, outputs: mnist.test.labels, training: False})
-            train_log_w.writerow(log_i)
+        val_loss = sess.run(pred_cost, feed_dict={inputs: mnist.test.images, outputs: mnist.test.labels, training: False})
+        pre = sess.run(y, feed_dict={inputs: mnist.test.images, outputs:mnist.test.labels, training: False})
+        tru = np.copy(mnist.test.labels)
+        '''
+        pre[pre<10] = 0
+        pre[pre>=10] = 1
+        tru[tru<10] = 0
+        tru[tru>=10] = 1
+        acc = accuracy_score(pre.flatten(), tru.flatten())        
+        best_acc = max(best_acc, acc)
+        '''
+        m = Metrics([10])
+        print(m.compute_metrics(pre, tru))
 
-print "Final Accuracy: ", sess.run(accuracy, feed_dict={inputs: mnist.test.images, outputs: mnist.test.labels, training: False}), "%"
-
+saver.save(sess, app + 'sup/sup')
 sess.close()
