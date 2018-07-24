@@ -149,18 +149,11 @@ def read_data_sets(app, train_dir, n_labeled = 100, fake_data=False, one_hot=Fal
   validation_labels = np.nan_to_num(np.load(app+'/val_y.npy'))
   train_images = np.nan_to_num(np.load(app+'/train_x.npy'))
   train_labels = np.nan_to_num(np.load(app+'/train_y.npy'))
-  print(mean_squared_error(validation_labels, np.zeros(validation_labels.shape)))
-  '''
   threshold = 10
   validation_labels[validation_labels <= threshold] = 0
   validation_labels[validation_labels > threshold] = 1
   train_labels[train_labels <= threshold] = 0
   train_labels[train_labels > threshold] = 1
-  print(accuracy_score(validation_labels.flatten(), np.zeros(validation_labels.flatten().shape)))
-  print(precision_score(validation_labels.flatten(), np.ones(validation_labels.flatten().shape)))
-  print(recall_score(validation_labels.flatten(), np.ones(validation_labels.flatten().shape)))
-  exit()
-  '''
   data_sets.train = SemiDataSet(train_images, train_labels, n_labeled)
   data_sets.validation = DataSet(validation_images, validation_labels)
   data_sets.test = DataSet(validation_images, validation_labels)

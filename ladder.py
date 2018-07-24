@@ -205,7 +205,7 @@ with tf.control_dependencies([train_step]):
     train_step = tf.group(bn_updates)
 
 print "===  Loading Data ==="
-app = sys.argv[1] + '/'
+app = sys.argv[1]
 mnist = input_data.read_data_sets(app, "MNIST_data", n_labeled=num_labeled)
 
 saver = tf.train.Saver()
@@ -216,6 +216,7 @@ sess = tf.Session()
 i_iter = 0
 
 test = [2, 4, 6, 15, 17, 22, 24, 26, 39]
+'''
 # Testing
 ckpt = tf.train.get_checkpoint_state(app)  # get latest checkpoint (if any)
 if ckpt and ckpt.model_checkpoint_path:
@@ -234,8 +235,7 @@ if ckpt and ckpt.model_checkpoint_path:
                 print(dd['classification_2_state']['accuracy_score'], dd['regression']['mean_absolute_error'], dd['regression']['relative_error_in_total_energy'])
             except:
                 pass
-exit()
-
+'''
 # Training
 init = tf.global_variables_initializer()
 sess.run(init)
