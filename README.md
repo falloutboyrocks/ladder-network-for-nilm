@@ -1,3 +1,14 @@
-This is an implementation of Ladder Network in TensorFlow. Ladder network is a deep learning algorithm that combines supervised and unsupervised learning. It was introduced in the paper _Semi-Supervised Learning with Ladder Network_ by A Rasmus, H Valpola, M Honkala, M Berglund, and T Raiko.
+# Semi-supervised Learning on NILM dataset
 
+## How to Run the code
+```
+python ladder.py (appliance)/
+```
 
+For example:
+```
+python ladder.py fridge/
+```
+
+The code is currently configured so that the model is trained from scratched.  
+During the training process, the program will display current loss information.  
